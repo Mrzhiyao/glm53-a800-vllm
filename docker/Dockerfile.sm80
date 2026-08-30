@@ -1,0 +1,61 @@
+ARG BASE_IMAGE=lazymio/vllm-backport:latest-sm80
+FROM ${BASE_IMAGE} AS builder
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG MAX_JOBS=16
+ARG NVCC_THREADS=1
+
+ENV HTTP_PROXY=${HTTP_PROXY} \
+    HTTPS_PROXY=${HTTPS_PROXY} \
+    http_proxy=${http_proxy} \
+    https_proxy=${https_proxy} \
+    TORCH_CUDA_ARCH_LIST=8.0 \
+    MAX_JOBS=${MAX_JOBS} \
+    NVCC_THREADS=${NVCC_THREADS} \
+    SETUPTOOLS_SCM_PRETEND_VERSION=0.8.1+glm53a800
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system \
+      'cmake>=3.26.1' \
+      'setuptools>=77.0.3,<81.0.0' \
+      'setuptools-scm>=8.0' \
+      'setuptools-rust>=1.9.0' \
+      wheel
+
+# The runtime image contains NVRTC but omits the unversioned development link
+# that CMake's FindCUDAToolkit expects.
+RUN ln -sf /usr/local/cuda/targets/x86_64-linux/lib/libnvrtc.so.13 \
+      /usr/local/cuda/targets/x86_64-linux/lib/libnvrtc.so
+
+WORKDIR /opt/vllm-src
+COPY . .
+
+# Reuse the base image's Rust frontend. The CUDA/C++ extension is rebuilt for
+# the GLM KPool cache changes and restricted to the A800's SM80 architecture.
+RUN cp -a /usr/local/lib/python3.12/dist-packages/vllm/vllm-rs vllm/vllm-rs && \
+    cp -a /usr/local/lib/python3.12/dist-packages/vllm/_rust_*.so vllm/
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    --mount=type=cache,target=/opt/vllm-src/.deps \
+    python3 -m pip wheel \
+      --no-build-isolation \
+      --no-deps \
+      --wheel-dir /tmp/wheels \
+      .
+
+FROM ${BASE_IMAGE}
+
+COPY --from=builder /tmp/wheels /tmp/wheels
+RUN python3 -m pip install --no-deps --force-reinstall /tmp/wheels/vllm-*.whl && \
+    rm -rf /tmp/wheels
+
+LABEL org.opencontainers.image.title="GLM-5.3-Flash for A800 SM80" \
+      ai.glm53.base="wtdcode/vllm-backport@2674c8bb6d8799b32158c94bee33356d84772a2a" \
+      ai.glm53.integration="ZJY0516/vllm:glm-release@6f0369074d9f755917ee2d29c15809ea73bcbfba"

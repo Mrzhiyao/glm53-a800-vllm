@@ -1,0 +1,11 @@
+build/
+dist/
+*.tar
+*.tar.gz
+*.tar.zst
+*.tar.sha256
+*.tar.gz.sha256
+*.tar.zst.sha256
+__pycache__/
+*.pyc
+.env

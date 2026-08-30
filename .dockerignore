@@ -1,0 +1,5 @@
+.git
+build
+dist
+*.tar*
+__pycache__

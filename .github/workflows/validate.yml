@@ -1,0 +1,24 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  static-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate shell scripts
+        run: bash -n scripts/*.sh
+
+      - name: Compile Python files
+        run: python3 -m compileall -q overrides tests
+
+      - name: Reject accidentally committed archives
+        run: |
+          if find . -type f \( -name '*.tar' -o -name '*.tar.gz' -o -name '*.tar.zst' \) -print -quit | grep -q .; then
+            echo 'Container archives must not be committed to git.' >&2
+            exit 1
+          fi
